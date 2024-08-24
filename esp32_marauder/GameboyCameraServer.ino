@@ -187,9 +187,7 @@ void onImageRequest(AsyncWebServerRequest *request) {
   request->send(response);
 }
 void gb_camera_setup() {
-  _index_html = link_camera_index_html_gz;
-  _index_html_len = link_camera_index_html_gz_len;
-  WiFi.mode(WIFI_AP);
+  strncpy(index_html, reinterpret_cast<const char*>(link_camera_index_html), sizeof(link_camera_index_html));
   gbStartAP("[MALVEKE] Flipper GB Cam", "12345678");
 
   _server.on("/image", HTTP_GET, onImageRequest);
@@ -236,8 +234,10 @@ void gb_camera_setup() {
       response->addHeader("Content-Encoding", "gzip");
       request->send(response);
   });
-
-  _server.addHandler(new GameboyCaptiveRequestHandler()).setFilter(ON_AP_FILTER);
+  _server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", reinterpret_cast<const char*>(link_camera_index_html));
+  });
+  _server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
   _server.begin();
 }
 

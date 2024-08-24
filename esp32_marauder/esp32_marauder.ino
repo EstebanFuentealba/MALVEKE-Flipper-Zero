@@ -1,10 +1,3 @@
-/* FLASH SETTINGS
-Board: LOLIN D32
-Flash Frequency: 80MHz
-Partition Scheme: Minimal SPIFFS
-https://www.online-utility.org/image/convert/to/XBM
-*/
-
 #include "configs.h"
 
 #include <WiFi.h>
@@ -217,54 +210,54 @@ void loop()
   
   //if ((!do_draw) && (wifi_scan_obj.currentScanMode != ESP_UPDATE))
   //{
-  if(!gameboy_cartridge.isRestoringRAM()){
-  cli_obj.main(currentTime);
+  if (!gameboy_cartridge.isRestoringRAM()) {
+    cli_obj.main(currentTime);
   }
 
   gameboy_cartridge.main();
   gameboy_advance_cartridge.main();
   gameboy_live_camera.main();
   gameboy_test_pin.main();
-  if(!gameboy_live_camera.isRunning() && !gameboy_cartridge.isWrittingRAM() && !gameboy_cartridge.isWrittingROM() && !gameboy_cartridge.isRestoringRAM()) {
+  if (!gameboy_live_camera.isRunning() && !gameboy_cartridge.isWrittingRAM() && !gameboy_cartridge.isWrittingROM() && !gameboy_cartridge.isRestoringRAM()) {
 
-  wifi_scan_obj.main(currentTime);
-  //evil_portal_obj.main(wifi_scan_obj.currentScanMode);
+    wifi_scan_obj.main(currentTime);
+    //evil_portal_obj.main(wifi_scan_obj.currentScanMode);
 
-  #ifdef HAS_GPS
+#ifdef HAS_GPS
     gps_obj.main();
-  #endif
+#endif
 
-  // Save buffer to SD and/or serial
-  buffer_obj.save();
-  settings_obj.main(currentTime);
-  if (((wifi_scan_obj.currentScanMode != WIFI_PACKET_MONITOR) && (wifi_scan_obj.currentScanMode != WIFI_SCAN_EAPOL)) ||
-      (mini)) {
-    //cli_obj.main(currentTime);
-  }
-  //if (wifi_scan_obj.currentScanMode == OTA_UPDATE)
-  //  web_obj.main();
-  #ifdef HAS_SCREEN
+    // Save buffer to SD and/or serial
+    buffer_obj.save();
+    settings_obj.main(currentTime);
+    if (((wifi_scan_obj.currentScanMode != WIFI_PACKET_MONITOR) && (wifi_scan_obj.currentScanMode != WIFI_SCAN_EAPOL)) ||
+        (mini)) {
+      //cli_obj.main(currentTime);
+    }
+    //if (wifi_scan_obj.currentScanMode == OTA_UPDATE)
+    //  web_obj.main();
+#ifdef HAS_SCREEN
     delay(1);
-  #else
+#else
     delay(50);
-  #endif
-  //}
-  /*else if (wifi_scan_obj.currentScanMode == ESP_UPDATE) {
-    #ifdef HAS_SCREEN
-      display_obj.main(wifi_scan_obj.currentScanMode);
-      menu_function_obj.main(currentTime);
-    #endif
+#endif
+    //}
+    /*else if (wifi_scan_obj.currentScanMode == ESP_UPDATE) {
+      #ifdef HAS_SCREEN
+        display_obj.main(wifi_scan_obj.currentScanMode);
+        menu_function_obj.main(currentTime);
+      #endif
 
-    #ifdef MARAUDER_FLIPPER
-      flipper_led.main();
-    #elif defined(XIAO_ESP32_S3)
-      xiao_led.main();
-    #else
-      led_obj.main(currentTime);
-    #endif
-    
-    //cli_obj.main(currentTime);
-    delay(1);
-  }*/
+      #ifdef MARAUDER_FLIPPER
+        flipper_led.main();
+      #elif defined(XIAO_ESP32_S3)
+        xiao_led.main();
+      #else
+        led_obj.main(currentTime);
+      #endif
+
+      //cli_obj.main(currentTime);
+      delay(1);
+      }*/
   }
 }

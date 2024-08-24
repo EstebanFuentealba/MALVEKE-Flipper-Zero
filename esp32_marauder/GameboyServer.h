@@ -11,7 +11,6 @@
 #include <sstream>
 #include <vector>
 #include <string>
-// #include "SPIFFS.h"
 
 #define MAX_HTML_SIZE 20000
 
@@ -26,19 +25,4 @@ const uint8_t* _index_html;
 
 void gbStartAP(char* ssid, char* password);
 
-class GameboyCaptiveRequestHandler : public AsyncWebHandler {
-public:
-  GameboyCaptiveRequestHandler() {}
-  virtual ~GameboyCaptiveRequestHandler() {}
-
-  bool canHandle(AsyncWebServerRequest *request) { return true; }
-
-  void handleRequest(AsyncWebServerRequest *request) {
-    //  request->send(SPIFFS, "/index.html");
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", _index_html, _index_html_len);
-    // AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", (const char*) _index_html);
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response);
-  }
-};
 #endif
