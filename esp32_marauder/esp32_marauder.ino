@@ -154,6 +154,11 @@ void setup()
               for (;;)
                 gb_camera_loop();
                 break;
+            case 's':
+              gb_camera_server_setup();
+              for (;;)
+                gb_camera_server_loop();
+                break;
           #endif
         }
       }
