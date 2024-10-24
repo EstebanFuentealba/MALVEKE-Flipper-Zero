@@ -71,7 +71,7 @@
 - [GAME BOY ADVANCE Cartridge MALVEKE](./flipper_companion_apps/applications/external/malveke_gba_cartridge/README.md)
 - [GAME BOY Photo MALVEKE](./flipper_companion_apps/applications/external/malveke_gb_photo/README.md)
 - [GAME BOY Live Camera MALVEKE](./flipper_companion_apps/applications/external/malveke_gb_live_camera/README.md)
-- GAME BOY Camera Link Cable Transfer MALVEKE (Review)
+- [GAME BOY Camera Link Cable Transfer (MALVEKE v2.6)](./flipper_companion_apps/applications/external/malveke_gb_link_camera/README.md)
 - GAME BOY Printer Link Cable Transfer MALVEKE
 - GAME BOY Logo Generator MALVEKE
 - [GAME BOY Pokemon Trading MALVEKE](https://github.com/EstebanFuentealba/Flipper-Zero-Game-Boy-Pokemon-Trading?tab=readme-ov-file#instructions-for-use)
