@@ -9,6 +9,7 @@
 
 **Firmware**: [Install Firmware MALVEKE](./webinstaller/README.md)
 
+**🛟 Troubleshooting**: [Wiki](https://github.com/EstebanFuentealba/MALVEKE-Flipper-Zero/wiki/Troubleshooting)
 
 
 <picture>
