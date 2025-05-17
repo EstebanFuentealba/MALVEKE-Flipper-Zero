@@ -146,17 +146,39 @@ void gb_cartridge_app_app_free(GBCartridge* app) {
     view_dispatcher_remove_view(app->view_dispatcher, GBCartridgeViewIdStartscreen);
 
     variable_item_list_free(app->submenu);
+    variable_item_list_free(app->variable_item_list);
 
     // View Dispatcher
     view_dispatcher_free(app->view_dispatcher);
     // Scene manager
     scene_manager_free(app->scene_manager);
 
-    //
     uart_free(app->uart);
     uart_free(app->lp_uart);
 
+    if(app->cart_rom) {
+        if(storage_file_is_open(app->cart_rom)) {
+            storage_file_close(app->cart_rom);
+        }
+        storage_file_free(app->cart_rom);
+    }
+    if(app->cart_ram) {
+        if(storage_file_is_open(app->cart_ram)) {
+            storage_file_close(app->cart_ram);
+        }
+        storage_file_free(app->cart_ram);
+    }
+    if(app->cart_log) {
+        if(storage_file_is_open(app->cart_log)) {
+            storage_file_close(app->cart_log);
+        }
+        storage_file_free(app->cart_log);
+    }
+
+    furi_string_free(app->file_path);
+
     furi_record_close(RECORD_DIALOGS);
+    furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_STORAGE);
 
@@ -164,7 +186,6 @@ void gb_cartridge_app_app_free(GBCartridge* app) {
     app->notification = NULL;
     app->storage = NULL;
 
-    //Remove whatever is left
     free(app);
 }
 

@@ -56,6 +56,7 @@ static void
 
 // Define una constante para el prefijo que estamos buscando
 #define JSON_PREFIX "JSON:"
+#define JSON_PREFIX_LEN (sizeof(JSON_PREFIX) - 1)
 
 // Variables globales
 static char json_buffer[2048]; // Ajusta el tamaño según tus necesidades
@@ -68,38 +69,39 @@ static bool json_capture_active = false;
 
 static void process_json_buffer(void* context) {
     Uart* uart = (Uart*)context;
-    // Agregamos el terminador nulo al final del buffer
+    if(json_buffer_index >= sizeof(json_buffer)) {
+        json_buffer_index = sizeof(json_buffer) - 1;
+    }
     json_buffer[json_buffer_index] = '\0';
     if(uart->handle_rx_data_cb) {
         uart->handle_rx_data_cb((uint8_t*)json_buffer, json_buffer_index, uart->app);
         memset(json_buffer, 0, sizeof(json_buffer));
     }
-
-    // Reiniciamos el buffer
     json_buffer_index = 0;
 }
 
 static void uart_echo_push_to_list(void* context, uint8_t data) {
     Uart* uart = (Uart*)context;
     if(!json_capture_active) {
-        if(data == JSON_PREFIX[json_buffer_index]) {
-            json_buffer[json_buffer_index++] = data; // Agregar el carácter al buffer
-            if(json_buffer_index == strlen(JSON_PREFIX)) {
-                // Encontramos el prefijo, comenzamos a capturar
+        if(json_buffer_index < JSON_PREFIX_LEN && data == JSON_PREFIX[json_buffer_index]) {
+            json_buffer[json_buffer_index++] = data;
+            if(json_buffer_index == JSON_PREFIX_LEN) {
                 json_buffer_index = 0;
                 json_capture_active = true;
             }
         } else {
-            // Reiniciamos el índice si no coincide con el prefijo
             json_buffer_index = 0;
         }
     } else {
-        // Capturamos caracteres hasta encontrar '\n'
-        json_buffer[json_buffer_index++] = data;
-        if(data == '\n') {
-            // Terminamos de capturar la línea, procesamos el buffer
+        if(json_buffer_index < sizeof(json_buffer) - 1) {
+            json_buffer[json_buffer_index++] = data;
+            if(data == '\n') {
+                json_capture_active = false;
+                process_json_buffer(uart);
+            }
+        } else {
             json_capture_active = false;
-            process_json_buffer(uart);
+            json_buffer_index = 0;
         }
     }
 }

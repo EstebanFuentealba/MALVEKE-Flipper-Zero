@@ -286,6 +286,14 @@ void GameBoyCartridge::headerROM_GB(bool printInfo = true)
     // Read cartridge title and check for non-printable text
     for (uint16_t titleAddress = 0x0134; titleAddress <= 0x143; titleAddress++)
     {
+        // Calculate the index in gameTitle array
+        uint8_t titleIndex = titleAddress - 0x0134;
+        
+        // Ensure we don't exceed the gameTitle buffer size
+        if (titleIndex >= sizeof(this->gameTitle)) {
+            break;
+        }
+        
         char headerChar = this->startRomBuffer[titleAddress];
         if ((headerChar >= 0x30 && headerChar <= 0x39) || // 0-9
             (headerChar >= 0x41 && headerChar <= 0x5A) || // A-Z
@@ -296,18 +304,18 @@ void GameBoyCartridge::headerROM_GB(bool printInfo = true)
             (headerChar == 0x5F) ||                       // _
             (headerChar == 0x20))
         { // Space
-            this->gameTitle[(titleAddress - 0x0134)] = headerChar;
+            this->gameTitle[titleIndex] = headerChar;
             myLength++;
         }
         // Replace with an underscore
         else if (headerChar == 0x3A)
         {
-            this->gameTitle[(titleAddress - 0x0134)] = '_';
+            this->gameTitle[titleIndex] = '_';
             myLength++;
         }
         else
         {
-            this->gameTitle[(titleAddress - 0x0134)] = '\0';
+            this->gameTitle[titleIndex] = '\0';
             break;
         }
     }
@@ -770,8 +778,21 @@ void GameBoyCartridge::rd_wr_mreq_off(void)
 
 void GameBoyCartridge::readROM_GB()
 {
+    // Check for ongoing operations
+    if (this->writtingRAM || this->writtingROM || this->restoringRAM) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Another operation is in progress";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
+
+    // Reset state variables
     this->writtingRAM = false;
     this->writtingROM = false;
+    this->restoringRAM = false;
     this->lastByte = 0;
     this->cartridgeType = 0;
     this->romSize = 0;
@@ -784,211 +805,175 @@ void GameBoyCartridge::readROM_GB()
     this->romType = 0;
     this->currentBank = 0;
 
-    this->headerROM_GB(false);
-    transferJSON.clear();
-    this->romEndAddress = 0x7FFF;
+    // Read cartridge header
+    bool headerSuccess = false;
+    try {
+        this->headerROM_GB(false);
+        headerSuccess = true;
+    } catch (...) {
+        headerSuccess = false;
+    }
+
+    if (!headerSuccess) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Failed to read cartridge header";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
+
+    // Setup initial ROM reading parameters
+    this->romEndAddress = 0x7FFF; // Default end address
     this->romAddress = 0;
     this->romStartBank = 1;
     this->processedProgressBar = 0;
     
-    // M161 banks are double size and start with 0
-    if (this->romType == 0x104) {
+    // Apply cartridge-specific settings
+    if (this->romType == 0x104) { // M161 banks are double size and start with 0
         this->romStartBank = 0;
-        this->romBanks >>= 1;
+        this->romBanks = (this->romBanks > 0) ? this->romBanks >> 1 : 1;
         this->romEndAddress = 0x7FFF;
-    }
-    // MBC6 banks are half size
-    else if (this->romType == 32) {
-        this->romBanks <<= 1;
+    } else if (this->romType == 32) { // MBC6 banks are half size
+        this->romBanks = (this->romBanks > 0) ? this->romBanks << 1 : 2;
         this->romEndAddress = 0x3FFF;
     }
 
+    // Validate ROM banks
+    if (this->romBanks == 0) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Invalid ROM size or unsupported cartridge type";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
 
+    // Calculate total expected bytes to process
     this->totalProgressBar = (uint32_t)(this->romBanks) * 16384;
+    if (this->totalProgressBar == 0) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Error calculating ROM size";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
 
-    // transferJSON["type"] = "rom";
-    // transferJSON["total"] = this->totalProgressBar ;
-    // transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar ;
-    // transferJSON["romBanks"] = this->romBanks;
-    // delay(200);
-    // Serial.print("JSON:");
-    // serializeJson(transferJSON, Serial);
-    // Serial.println();
-
-
+    // Initial setup is complete, start ROM reading process
     this->currentBank = this->romStartBank;
-
-    // this->writtingROM = true;
-    delay(400);
-    /*
-    for (byte bank = 0; bank < romBanks; bank++)
-    {
-        // DumpROMBank(i);
-        word offset = 0;
-  
-        if (bank > 0)
-        {
-            offset = 0x4000;  
-            // SwitchROMBank(bank);
-            this->dataBusAsOutput();
-  
-            switch (this->romType)
-            {
-                case 0xFF:
-                {
-                    this->write_byte_GB(0x2100, bank);
-                    break;
-                }
-                case 0x06:
-                case 0xFC:
-                {
-                    this->write_byte_GB(0x2100, bank);
-                    break;
-                }
-                case 0x1E:
-                {
-                    this->write_byte_GB(0x2100, bank);
-                    break;
-                }
-            }
-            this->dataBusAsInput();
-        }
-        
-        for (word address = 0; address < 0x4000; address++)
-        {
-            byte data = this->read_byte_GB(address + offset);
-            Serial.write(data);
-        }
-        
-    }
-    */
     
-   
-    // word romAddress = 0;
-    // word romEndAddress;
-    // uint32_t processedProgressBar = 0;
-  this->totalProgressBar = (uint32_t)(this->romBanks)*16384;
-    for (word currBank = this->currentBank; currBank < this->romBanks; currBank++) {
-    // Second bank starts at 0x4000
-    if (currBank > 1) {
-      this->romAddress = 0x4000;
-
-      // MBC6 banks are half size
-      if (this->romType == 32) {
-        this->romEndAddress = 0x5FFF;
-      }
-    }
-
-    // Set ROM bank for M161
-    if (this->romType == 0x104) {
-      this->romAddress = 0;
-      // Set CS2(PH0) to LOW
-      // PORTH &= ~(1 << 0);
-      cs2Pin_low;
-      delay(50);
-      // Set CS2(PH0) to HIGH
-      // PORTH |= (1 << 0);
-      cs2Pin_high;
-      this->write_byte_GB(0x4000, currBank & 0x7);
-    }
-
-    // Set ROM bank for MBC1M
-    else if (this->romType == 0x101 || this->romType == 0x103) {
-      if (currBank < 10) {
-        this->write_byte_GB(0x4000, currBank >> 4);
-        this->write_byte_GB(0x2000, (currBank & 0x1f));
-      } else {
-        this->write_byte_GB(0x4000, currBank >> 4);
-        this->write_byte_GB(0x2000, 0x10 | (currBank & 0x1f));
-      }
-    }
-
-    // Set ROM bank for MBC6
-    else if (this->romType == 32) {
-      this->write_byte_GB(0x2800, 0);
-      this->write_byte_GB(0x3800, 0);
-      this->write_byte_GB(0x2000, currBank);
-      this->write_byte_GB(0x3000, currBank);
-    }
-
-    // Set ROM bank for TAMA5
-    else if (this->romType == 0xFD) {
-      // writeByteSRAM_GB(0xA001, 0);
-      // writeByteSRAM_GB(0xA000, currBank & 0x0f);
-      // writeByteSRAM_GB(0xA001, 1);
-      // writeByteSRAM_GB(0xA000, (currBank >> 4) & 0x0f);
-    }
-
-    // Set ROM bank for MBC2/3/4/5
-    else if (this->romType >= 5) {
-      if (this->romType >= 11 && this->romType <= 13) {
-        if ((currBank & 0x1f) == 0) {
-          // reset MMM01
-          // PORTH &= ~(1 << 0);
-          cs2Pin_low;
-          delay(50);
-          // PORTH |= (1 << 0);
-          cs2Pin_high;
-
-          // remap to higher 4Mbits ROM
-          this->write_byte_GB(0x3fff, 0x20);
-          this->write_byte_GB(0x5fff, 0x40);
-          this->write_byte_GB(0x7fff, 0x01);
-          this->write_byte_GB(0x1fff, 0x3a);
-          this->write_byte_GB(0x1fff, 0x7a);
-
-          // for every 4Mbits ROM, restart from 0x0000
-          this->romAddress = 0x0000;
-          currBank++;
-        } else {
-          this->write_byte_GB(0x6000, 0);
-          this->write_byte_GB(0x2000, (currBank & 0x1f));
-        }
-      } else {
-        if ((this->romType >= 0x19 && this->romType <= 0x1E) && (currBank == 0 || currBank == 256)) {
-          this->write_byte_GB(0x3000, (currBank >> 8) & 0xFF);
-        }
-        this->write_byte_GB(0x2100, currBank & 0xFF);
-      }
-    }
-    // Set ROM bank for MBC1
-    else {
-      this->write_byte_GB(0x6000, 0);
-      this->write_byte_GB(0x4000, currBank >> 5);
-      this->write_byte_GB(0x2000, currBank & 0x1F);
-    }
-    
-    // Read banks and save to SD
-    while (this->romAddress <= this->romEndAddress) {
-      for (int i = 0; i < 64; i++) {
-        // char hexbuffer[3]; // Se reserva espacio para almacenar el valor hexadecimal y el carácter nulo
-        this->sdBuffer[i] = this->read_byte_GB(this->romAddress + i);
-      }
-      Serial1.write(this->sdBuffer, 64);
-      this->romAddress += 64;
-      this->processedProgressBar += 64;
-      //transferJSON["progress"] = processedProgressBar * 100 / totalProgressBar;
-
-      //Serial.print("JSON:");
-      //serializeJson(transferJSON, Serial);
-      //Serial.println();
-      // Serial.print(processedProgressBar * 100 / totalProgressBar );
-      // Serial.println("%");
-    }
-
-    
-    
-  }
+    // Send initial status
     transferJSON.clear();
-    transferJSON["type"] = "success";
+    transferJSON["type"] = "rom_reading";
     transferJSON["total"] = this->totalProgressBar;
-    transferJSON["transfered"] = this->processedProgressBar;
-    transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar;
+    transferJSON["progress"] = 0;
     transferJSON["romBanks"] = this->romBanks;
-    delay(200);
     Serial.print("JSON:");
     serializeJson(transferJSON, Serial);
     Serial.println();
+
+    // Set the flag before starting the operation
+    this->writtingROM = true;
+    
+    // Give hardware time to stabilize
+    delay(100);
+
+    // Read the first ROM bank synchronously, but defer rest to main() loop
+    // This gives feedback to the user immediately
+    if (this->romBanks > 0) {
+        bool bankReadSuccess = false;
+        
+        // Setup bank switching if needed
+        try {
+            // Set ROM bank registers based on cartridge type
+            switch (this->romType) {
+                case 0x104: // M161
+                    cs2Pin_low;
+                    delay(10);
+                    cs2Pin_high;
+                    this->write_byte_GB(0x4000, this->currentBank & 0x7);
+                    break;
+                    
+                case 0x101:
+                case 0x103: // MBC1M
+                    if (this->currentBank < 10) {
+                        this->write_byte_GB(0x4000, this->currentBank >> 4);
+                        this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
+                    } else {
+                        this->write_byte_GB(0x4000, this->currentBank >> 4);
+                        this->write_byte_GB(0x2000, 0x10 | (this->currentBank & 0x1f));
+                    }
+                    break;
+                    
+                case 32: // MBC6
+                    this->write_byte_GB(0x2800, 0);
+                    this->write_byte_GB(0x3800, 0);
+                    this->write_byte_GB(0x2000, this->currentBank);
+                    this->write_byte_GB(0x3000, this->currentBank);
+                    break;
+                    
+                default:
+                    if (this->romType >= 5) { // MBC2/3/4/5
+                        this->write_byte_GB(0x2100, this->currentBank & 0xFF);
+                    } else { // Assume MBC1 or similar
+                        this->write_byte_GB(0x6000, 0);
+                        this->write_byte_GB(0x2000, this->currentBank & 0x1F);
+                    }
+                    break;
+            }
+            
+            bankReadSuccess = true;
+        } catch (...) {
+            bankReadSuccess = false;
+        }
+        
+        if (!bankReadSuccess) {
+            this->writtingROM = false;
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Failed to initialize ROM bank switching";
+            Serial.print("JSON:");
+            serializeJson(transferJSON, Serial);
+            Serial.println();
+            return;
+        }
+        
+        // Read first chunk (64 bytes) to verify operation
+        try {
+            // Read ROM data in small chunks
+            const size_t bufferSize = sizeof(this->sdBuffer) / sizeof(this->sdBuffer[0]);
+            
+            // Ensure we don't exceed buffer bounds
+            if (bufferSize >= 64) {
+                for (int i = 0; i < 64 && this->romAddress + i <= this->romEndAddress; i++) {
+                    this->sdBuffer[i] = this->read_byte_GB(this->romAddress + i);
+                }
+                
+                // Send data to Serial1
+                Serial1.write(this->sdBuffer, 64);
+                this->romAddress += 64;
+                this->processedProgressBar += 64;
+            } else {
+                throw std::runtime_error("Buffer size too small");
+            }
+        } catch (...) {
+            this->writtingROM = false;
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Failed to read ROM data";
+            Serial.print("JSON:");
+            serializeJson(transferJSON, Serial);
+            Serial.println();
+            return;
+        }
+    }
+    
+    // Remaining reading will be handled by the main() loop
+    // No need to send a status message here, will be handled by main()
 }
 
 byte GameBoyCartridge::readByteSRAM_GB(uint16_t myAddress)
@@ -1144,8 +1129,19 @@ byte GameBoyCartridge::readByteSRAM_GB(uint16_t myAddress)
 // }
 void GameBoyCartridge::readSRAM_GB()
 {
-    
+    // Clear any existing operations first
+    if (this->writtingRAM || this->writtingROM || this->restoringRAM) {
+        // Another operation is in progress, can't start a new one
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Another operation is in progress";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
 
+    // Reset state variables
     this->writtingRAM = false;
     this->writtingROM = false;
     this->lastByte = 0;
@@ -1160,49 +1156,109 @@ void GameBoyCartridge::readSRAM_GB()
     this->romType = 0;
     this->currentBank = 0;
 
+    // Get cartridge information
+    bool headerSuccess = false;
+    
+    try {
+        this->headerROM_GB(false);
+        headerSuccess = true;
+    } catch (...) {
+        // Handle any exception during header reading
+        headerSuccess = false;
+    }
 
-    this->headerROM_GB(false);
-    // buffer_obj = Buffer();
-    // buffer_obj.openFile("ram", NULL, true, false);
+    if (!headerSuccess) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Failed to read cartridge header";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
 
-    transferJSON.clear();
-    // Initialize progress bar
+    // Validate we can read RAM from this cartridge
+    if (this->ramEndAddress <= 0 || this->sramBanks == 0) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Cartridge has no RAM or unsupported RAM type";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
+
+    // Initialize progress tracking
     this->processedProgressBar = 0;
-    this->totalProgressBar  = (uint32_t)(this->sramBanks) * 8192;
+    this->totalProgressBar = (uint32_t)(this->sramBanks) * 8192;
+    
+    if (this->totalProgressBar == 0) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Invalid RAM size calculation";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
 
+    // Send initial status
+    transferJSON.clear();
     transferJSON["type"] = "ram";
     transferJSON["total"] = this->totalProgressBar;
-    transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar;
+    transferJSON["progress"] = 0;
     transferJSON["ramBanks"] = this->sramBanks;
     transferJSON["lastByte"] = this->ramEndAddress;
     
-    delay(200);
     Serial.print("JSON:");
     serializeJson(transferJSON, Serial);
     Serial.println();
-    // String jsonString;
-    // serializeJson(transferJSON, jsonString);
-    // String prefixedJsonString = "JSON:" + jsonString;
-    // buffer_obj.write(reinterpret_cast<const uint8_t*>(prefixedJsonString.c_str()), prefixedJsonString.length());
-    // buffer_obj.save();
+
+    // Reset control lines
     this->rd_wr_mreq_reset();
 
     // MBC2 Fix (unknown why this fixes reading the ram, maybe has to read ROM before RAM?)
-    this->read_byte_GB(0x0134);
-    if(this->ramEndAddress > 0) {
-        if (this->cartridgeType <= 4)
-        {                                   // MBC1
-            this->write_byte_GB(0x6000, 1); // Set RAM Mode
+    bool readSuccess = false;
+    
+    // Add timeout for hardware access
+    unsigned long startTime = millis();
+    while (!readSuccess && millis() - startTime < 1000) { // 1 second timeout
+        try {
+            this->read_byte_GB(0x0134);
+            readSuccess = true;
+        } catch (...) {
+            // Retry on failure
+            delay(10);
         }
-        this->dataBusAsOutput();
-        // Initialise MBC
-        this->write_byte_GB(0x0000, 0x0A);
-        delayMicroseconds(50);
-        this->dataBusAsInput();
-
-        // this->write_byte_GB(0x4000, 0);
-        this->writtingRAM = true;
     }
+    
+    if (!readSuccess) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Failed to initialize cartridge for RAM reading";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
+
+    // Setup RAM access mode
+    if (this->cartridgeType <= 4) { // MBC1
+        this->dataBusAsOutput();
+        this->write_byte_GB(0x6000, 1); // Set RAM Mode
+        this->dataBusAsInput();
+    }
+    
+    // Enable RAM access
+    this->dataBusAsOutput();
+    this->write_byte_GB(0x0000, 0x0A);
+    delayMicroseconds(50);
+    this->dataBusAsInput();
+
+    // Start the RAM reading process
+    // The main() function will handle the actual reading in chunks
+    this->currentBank = 0;
+    this->writtingRAM = true;
 }
 void GameBoyCartridge::ramEnable() {
     this->dataBusAsOutput();
@@ -1217,10 +1273,19 @@ void GameBoyCartridge::ramDisable() {
     delay(50);
     this->dataBusAsInput();
 }
-// Receive Serial data
+// Timeout threshold for serial_receive() to prevent infinite blocking
+static const unsigned long SERIAL_RECEIVE_TIMEOUT_MS = 1000; // milliseconds
+
+// Receive Serial data with timeout
 uint8_t GameBoyCartridge::serial_receive() {
-    while (Serial.available() <= 0);
-	return Serial.read(); // Get and return received data from buffer
+    unsigned long start = millis();
+    while (Serial.available() <= 0) {
+        if (millis() - start >= SERIAL_RECEIVE_TIMEOUT_MS) {
+            return 0; // Timeout: no data available
+        }
+        delay(1);
+    }
+    return Serial.read();
 }
 // Transmit Serial data
 void GameBoyCartridge::serial_transmit(uint8_t data) {
@@ -1236,25 +1301,61 @@ void GameBoyCartridge::serial_read_bytes(uint8_t count) {
 }
 
 uint8_t* GameBoyCartridge::serial_read_64_bytes(uint8_t count) {
-    uint8_t* receivedBuffer = new uint8_t[count];
+    // Use malloc instead of new for consistency with free
+    uint8_t* receivedBuffer = (uint8_t*)malloc(count);
+    if (!receivedBuffer) {
+        // Handle memory allocation failure
+        return NULL;
+    }
+    
+    // Read with timeout
+    unsigned long startTime = millis();
     for (uint8_t x = 0; x < count; x++) {
-        while (Serial.available() <= 0);
+        // Add timeout to prevent hanging
+        while (Serial.available() <= 0) {
+            if (millis() - startTime > SERIAL_RECEIVE_TIMEOUT_MS) {
+                // Timeout occurred, clean up and return NULL
+                free(receivedBuffer);
+                return NULL;
+            }
+            delay(1);
+        }
         receivedBuffer[x] = Serial.read();
     }
     return receivedBuffer;
+    
+    // IMPORTANT: Caller must free this buffer with free() when done!
 }
 // Read from Serial until a 0 (string terminator byte) is received
 void GameBoyCartridge::serial_read_chars() {
   uint8_t x = 0;
-  while (1) {
-    char receivedChar = Serial1.read();
-    if (receivedChar == 0 || x >= sizeof(receivedBuffer) - 1) {
-      break;
+  unsigned long startTime = millis();
+  
+  // Set maximum buffer size with 1 byte reserved for null terminator
+  const size_t maxChars = sizeof(this->receivedBuffer) - 1;
+  
+  while (x < maxChars) {
+    // Check for timeout
+    if (millis() - startTime > SERIAL_RECEIVE_TIMEOUT_MS) {
+      break; // Prevent infinite loops
     }
-    this->receivedBuffer[x] = receivedChar;
-    x++;
+    
+    // Wait for data with timeout
+    if (Serial1.available() <= 0) {
+      delay(1);
+      continue;
+    }
+    
+    char receivedChar = Serial1.read();
+    if (receivedChar == 0) {
+      break; // End of string
+    }
+    
+    this->receivedBuffer[x++] = receivedChar;
   }
-  this->receivedBuffer[x] = 0; // Null-terminate the string
+  
+  // Ensure the string is null-terminated
+  this->receivedBuffer[x] = 0;
 }
 
 // Triggers CS and CLK pin
@@ -1385,14 +1486,41 @@ void GameBoyCartridge::test(int maxBufferSize) {
 
 }
 void GameBoyCartridge::restoreRAM(int maxBufferSize) {
-    char hexStr[27]; // "XX XX" más el carácter nulo al final
+    // Validate input size
+    if (maxBufferSize <= 0 || maxBufferSize > 1048576) { // 1MB max as a reasonable limit
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Invalid buffer size";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
     
     bool receivingData = true;
     int totalReceived = 0;
-    uint8_t *save_buffer = nullptr;
-    save_buffer = (uint8_t*)malloc(maxBufferSize * sizeof(uint8_t));
-    memset(save_buffer, 0, maxBufferSize); // Limpiar el búfer
-    Serial.read();
+    
+    // Allocate buffer with error handling
+    uint8_t *save_buffer = (uint8_t*)malloc(maxBufferSize * sizeof(uint8_t));
+    if (!save_buffer) {
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Memory allocation failed";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        return;
+    }
+    
+    memset(save_buffer, 0, maxBufferSize); // Clear the buffer
+    
+    // Flush serial buffer
+    while (Serial.available()) {
+        Serial.read();
+    }
+    
+    // Add timeout for receiving data
+    unsigned long startTime = millis();
     while(receivingData) {
         if (Serial.available() > 0) {
             int bytesRead = Serial.readBytes(save_buffer + totalReceived, maxBufferSize - totalReceived);
@@ -1402,9 +1530,27 @@ void GameBoyCartridge::restoreRAM(int maxBufferSize) {
                     receivingData = false;
                 }
             }
+            // Reset timeout when we receive data
+            startTime = millis(); 
         }
+        
+        // Check for timeout
+        if (millis() - startTime > 5000) { // 5 second timeout
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Timeout waiting for data";
+            Serial.print("JSON:");
+            serializeJson(transferJSON, Serial);
+            Serial.println();
+            free(save_buffer);
+            return;
+        }
+        
+        // Small delay to prevent CPU hogging
+        delay(1);
     }
 
+    // Configure GPIO pins
     pinMode(GAMEBOY_RST, OUTPUT);
     pinMode(GAMEBOY_CLK, OUTPUT);
     pinMode(GAMEBOY_WR, OUTPUT);
@@ -1432,9 +1578,6 @@ void GameBoyCartridge::restoreRAM(int maxBufferSize) {
     digitalWrite(GAMEBOY_RST, HIGH);
 
     if(this->ramEndAddress > 0) {
-
-        // this->gb_mode();
-        // this->rd_wr_mreq_reset();
         this->totalRamBytes = (this->sramBanks) * 8192;
         this->currentAddress = 0xA000;
 
@@ -1445,50 +1588,67 @@ void GameBoyCartridge::restoreRAM(int maxBufferSize) {
         if (this->romType <= 4 || (this->romType >= 11 && this->romType <= 13)) {
             this->write_byte_GB(0x6000, 1); // Set RAM Mode
         }
-        // Initialise MBC
-        //  EnableRAM
+        
+        // Initialize MBC - Enable RAM
         this->ramEnable();
         this->currentBank = 0;
 
-
         // Switch RAM banks
         int x = 0;
-        int beforeValue = 0;
         for (uint8_t currBank = 0; currBank < this->sramBanks; currBank++) {
             this->dataBusAsOutput();
             this->write_byte_GB(0x4000, currBank);
             this->dataBusAsInput();
+            
             // Write RAM
             this->dataBusAsOutput();
 
             for (word sramAddress = 0xA000; sramAddress <= this->ramEndAddress; sramAddress++)
             {   
-                this->writeByteSRAM_GB(sramAddress,  save_buffer[x]);
-               x++;
+                // Ensure we don't exceed the buffer bounds
+                if (x < maxBufferSize) {
+                    this->writeByteSRAM_GB(sramAddress, save_buffer[x]);
+                    x++;
+                } else {
+                    // We've reached the end of our buffer
+                    break;
+                }
             }
+            
+            // Send progress update
             transferJSON.clear();
             transferJSON["type"] = "progress";
             transferJSON["progress"] = (int)(this->ramEndAddress - 0xA000);
+            transferJSON["bank"] = currBank;
+            transferJSON["total_banks"] = this->sramBanks;
             Serial.print("JSON:");
             serializeJson(transferJSON, Serial);
             Serial.println();
 
-            beforeValue = x;
-
             this->dataBusAsInput();
         }
 
+        // Disable RAM when done
         this->ramDisable();
         
+        // Send success message
         transferJSON.clear();
         transferJSON["type"] = "success";
-        // sprintf(hexStr, "%02X %02X %02X %02X %02X %02X %02X %02X", save_buffer[0], save_buffer[15], save_buffer[16], save_buffer[17], save_buffer[31308], save_buffer[31309], save_buffer[31310] , save_buffer[maxBufferSize -1]); // 00 01 07 07 AC B9 4E 00
-        // transferJSON["str"] = hexStr;
+        transferJSON["bytes_written"] = x;
         Serial.print("JSON:");
         serializeJson(transferJSON, Serial);
         Serial.println();
-
+    } else {
+        // No RAM to restore
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "No RAM to restore";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
     }
+    
+    // Always free the buffer, even on error paths
     free(save_buffer);
 }
 // void GameBoyCartridge::startReadRAM_GB() {
@@ -1584,412 +1744,407 @@ void GameBoyCartridge::setup()
 }
 void GameBoyCartridge::main()
 {
+    // Define timeouts and limits
+    const unsigned long MAX_OPERATION_TIME = 30000; // 30 seconds max for any single operation
+    const int MAX_READ_RETRIES = 3;           // Maximum number of read retries
+    
+    static unsigned long operationStartTime = 0;
+    static bool timeoutCheckEnabled = false;
+    
+    // Start timing when an operation begins
+    if ((this->isWrittingRAM() || this->isWrittingROM() || this->isRestoringRAM()) && !timeoutCheckEnabled) {
+        operationStartTime = millis();
+        timeoutCheckEnabled = true;
+    } else if (!(this->isWrittingRAM() || this->isWrittingROM() || this->isRestoringRAM())) {
+        timeoutCheckEnabled = false;
+    }
+    
+    // Check for operation timeout
+    if (timeoutCheckEnabled && (millis() - operationStartTime > MAX_OPERATION_TIME)) {
+        // Operation has timed out, cancel it and report error
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "Operation timed out";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+        
+        // Reset operation flags
+        this->writtingRAM = false;
+        this->writtingROM = false;
+        this->restoringRAM = false;
+        timeoutCheckEnabled = false;
+        
+        // Disable RAM access if needed
+        this->write_byte_GB(0x0000, 0x00);
+        this->rd_wr_mreq_off();
+        return;
+    }
+    
+    // Process RAM reading operation
     if (this->isWrittingRAM())
     {
-        if (this->currentBank < this->sramBanks) {
-            this->write_byte_GB(0x4000, this->currentBank);
-            // Read RAM
-            for (word ramAddress = 0xA000; ramAddress <= this->ramEndAddress; ramAddress += 64)
-            {
-                uint8_t readData[64];
-                for (uint8_t i = 0; i < 64; i++)
-                {
-                    readData[i] = this->readByteSRAM_GB(ramAddress + i);
-                }
-                Serial1.write(readData, 64); // Send the 64 byte chunk
-                Serial1.flush();
-                this->processedProgressBar += 64;
-            }
-            this->currentBank++;
-        } else {
-                // Disable RAM
-            this->write_byte_GB(0x0000, 0x00);
-            delay(50);
-            this->totalProgressBar = (uint32_t)(this->sramBanks) * 8192;
-            transferJSON["type"] = "success";
-            transferJSON["total"] = this->totalProgressBar;
-            transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar;
-            transferJSON["ramBanks"] = this->sramBanks;
-
-            delay(200);
+        // Validate current bank is within bounds
+        if (this->currentBank >= this->sramBanks || this->sramBanks == 0) {
+            // Invalid bank number, abort operation
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Invalid RAM bank number";
             Serial.print("JSON:");
             serializeJson(transferJSON, Serial);
             Serial.println();
-            // String jsonString;
-            // serializeJson(transferJSON, jsonString);
-            // String prefixedJsonString = "JSON:" + jsonString;
-            // buffer_obj.write(reinterpret_cast<const uint8_t*>(prefixedJsonString.c_str()), prefixedJsonString.length());
             
             this->writtingRAM = false;
-
+            this->write_byte_GB(0x0000, 0x00); // Disable RAM
             this->rd_wr_mreq_off();
+            return;
+        }
+
+        // Set the current RAM bank
+        bool bankSwitchSuccess = false;
+        int retryCount = 0;
+        while (!bankSwitchSuccess && retryCount < MAX_READ_RETRIES) {
+            try {
+                this->write_byte_GB(0x4000, this->currentBank);
+                bankSwitchSuccess = true;
+            } catch (...) {
+                retryCount++;
+                delay(10);
+            }
+        }
+        
+        if (!bankSwitchSuccess) {
+            // Failed to switch banks, abort operation
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Failed to switch RAM bank";
+            Serial.print("JSON:");
+            serializeJson(transferJSON, Serial);
+            Serial.println();
+            
+            this->writtingRAM = false;
+            this->write_byte_GB(0x0000, 0x00); // Disable RAM
+            this->rd_wr_mreq_off();
+            return;
+        }
+        
+        // Read RAM in chunks of 64 bytes
+        const size_t CHUNK_SIZE = 64;
+        uint8_t readData[CHUNK_SIZE];
+        bool chunkReadSuccess = true;
+        
+        // Calculate expected end of RAM for bounds checking
+        word maxRamAddress = (this->ramEndAddress > 0xBFFF) ? 0xBFFF : this->ramEndAddress;
+        
+        // Process one chunk of RAM data
+        word ramAddress = 0xA000;
+        while (ramAddress <= maxRamAddress && chunkReadSuccess) {
+            // Read up to 64 bytes
+            for (uint8_t i = 0; i < CHUNK_SIZE && ramAddress + i <= maxRamAddress; i++) {
+                try {
+                    readData[i] = this->readByteSRAM_GB(ramAddress + i);
+                } catch (...) {
+                    // If reading fails, set error flag and break
+                    chunkReadSuccess = false;
+                    break;
+                }
+            }
+            
+            if (!chunkReadSuccess) {
+                break;  // Exit the loop if reading failed
+            }
+            
+            // Send the chunk to Serial1
+            if (Serial1.availableForWrite() >= CHUNK_SIZE) {
+                Serial1.write(readData, CHUNK_SIZE);
+                // Don't flush here - it can block for too long
+                
+                // Update progress
+                ramAddress += CHUNK_SIZE;
+                this->processedProgressBar += CHUNK_SIZE;
+                
+                // Only process one chunk per main() call to prevent blocking too long
+                break;
+            } else {
+                // If serial buffer is full, wait for next loop iteration
+                break;
+            }
+        }
+        
+        // Check if we've finished this bank
+        if (ramAddress > maxRamAddress || !chunkReadSuccess) {
+            // Move to next bank or finish the operation
+            this->currentBank++;
+            
+            // Check if we've processed all banks
+            if (this->currentBank >= this->sramBanks || !chunkReadSuccess) {
+                // Disable RAM
+                this->write_byte_GB(0x0000, 0x00);
+                delay(50);
+                
+                // Calculate totals and send completion message
+                this->totalProgressBar = (uint32_t)(this->sramBanks) * 8192;
+                
+                transferJSON.clear();
+                if (chunkReadSuccess) {
+                    transferJSON["type"] = "success";
+                } else {
+                    transferJSON["type"] = "error";
+                    transferJSON["message"] = "Failed to read RAM data";
+                }
+                
+                transferJSON["total"] = this->totalProgressBar;
+                transferJSON["progress"] = (this->totalProgressBar > 0) ? 
+                    (this->processedProgressBar * 100 / this->totalProgressBar) : 0;
+                transferJSON["ramBanks"] = this->sramBanks;
+                transferJSON["bytesRead"] = this->processedProgressBar;
+                
+                Serial.print("JSON:");
+                serializeJson(transferJSON, Serial);
+                Serial.println();
+                
+                // Operation complete
+                this->writtingRAM = false;
+                this->rd_wr_mreq_off();
+            }
         }
     } 
     else if(this->isRestoringRAM()) 
     {   
-        // if (Serial1.available() > 0) {
-            if (this->ramEndAddress > 0) {
-                // this->serial_read_bytes(64);
-                // for (uint8_t i = 0; i < 64; i++) {
-                //     this->receivedBuffer[i] = (uint8_t)Serial1.read();
-                // }
-
-                // if (this->currentBank < this->sramBanks) {
-                    
-                //     this->write_byte_GB(0x4000, this->currentBank);
-                    
-                //     // Write RAM
-                //     for (uint8_t x = 0; x < 64; x++) {
-                //         this->write_byte_GB(this->currentAddress, this->receivedBuffer[x], MEMORY_WRITE );
-                //         this->currentAddress++;
-                //     }
-                //     // this->serial_transmit('1');
-
-                //     this->currentBank++;
-
-                //     transferJSON.clear();
-                //     transferJSON["type"] = "ack";
-                //     Serial.print("JSON:");
-                //     serializeJson(transferJSON, Serial);
-                //     Serial.println();
-
-                //     this->serial_read_bytes(64);
-                // } else {
-                //     // Disable SRAM
-                //     this->write_byte_GB(0x0000, 0x00);
-
-                //     transferJSON.clear();
-                //     transferJSON["type"] = "success";
-                //     Serial.print("JSON:");
-                //     serializeJson(transferJSON, Serial);
-                //     Serial.println();
-                
-                //     this->restoringRAM = false;
-                // }
-            
-            }
-        // } else {
-        //     if (this->currentBank == this->sramBanks) {
-        //         // Disable SRAM
-        //         this->write_byte_GB(0x0000, 0x00);
-
-        //         transferJSON.clear();
-        //         transferJSON["type"] = "success";
-        //         Serial.print("JSON:");
-        //         serializeJson(transferJSON, Serial);
-        //         Serial.println();
-            
-        //         this->restoringRAM = false;
-        //     }
-        // }
+        // The restoringRAM operation is not currently implemented in the main loop
+        // Disable the flag to prevent hanging
+        this->restoringRAM = false;
         
-        
-    } else if (this->isWrittingROM())
+        transferJSON.clear();
+        transferJSON["type"] = "error";
+        transferJSON["message"] = "RAM restoration via main loop not implemented";
+        Serial.print("JSON:");
+        serializeJson(transferJSON, Serial);
+        Serial.println();
+    } 
+    else if (this->isWrittingROM())
     {
-        if (this->currentBank < this->romBanks) {
-            /*
-            // Second bank starts at 0x4000
-            if (this->currentBank > 0)
-            {
-                this->romAddress = 0x4000;
-                this->dataBusAsOutput();
-                if ((this->romType == 1) || (this->romType == 2) || (this->romType == 3)) {
-                    //  MBC_1
-                    this->write_byte_GB(0x2100, this->currentBank);
-                } else if (((this->romType == 5) || (this->romType == 6)) || ((this->romType == 15) || (this->romType == 16) || (this->romType == 17) || (this->romType == 18) || (this->romType == 19))) {
-                    //  MBC_2 MBC_3
-                    this->write_byte_GB(0x2100, this->currentBank);
-                } else if ((this->romType == 25) || (this->romType == 26) || (this->romType == 27) || (this->romType == 28) || (this->romType == 29) || (this->romType == 309)) {
-                    //  MBC_5
-                    this->write_byte_GB(0x2100, this->currentBank);
-                }
-                this->dataBusAsInput();
-                // // MBC6 banks are half size
-                // if (this->romType == 32)
-                // {
-                //     this->romEndAddress = 0x5FFF;
-                // }
-            }
+        // Validate current bank is within bounds
+        if (this->currentBank >= this->romBanks || this->romBanks == 0) {
+            // Invalid bank number, abort operation
             transferJSON.clear();
-            transferJSON["type"] = "transfer";
-            transferJSON["offset"] =this->romAddress;
-            JsonArray chunkArray = transferJSON.createNestedArray("chunk");
-            for (word address = 0; address < 0x4000; address++) {
-                byte data = this->read_byte_GB(address + this->romAddress);
-                chunkArray.add(data);
-                this->processedProgressBar++;
-                // Serial1.write(data);
-            }
-            transferJSON["transfered"] = this->processedProgressBar;
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Invalid ROM bank number";
             Serial.print("JSON:");
             serializeJson(transferJSON, Serial);
             Serial.println();
-            // Serial1.flush();
-
-            // // Set ROM bank for M161
-            // if (this->romType == 0x104)
-            // {
-            //     this->romAddress = 0;
-            //     // Set CS2 to LOW
-            //     cs2Pin_low;
-            //     delay(50);
-            //     // Set CS2 to HIGH
-            //     cs2Pin_high;
-            //     this->write_byte_GB(0x4000, this->currentBank & 0x7);
-            // }
-
-            // // Set ROM bank for MBC1M
-            // else if (this->romType == 0x101 || this->romType == 0x103)
-            // {
-            //     if (this->currentBank < 10)
-            //     {
-            //         this->write_byte_GB(0x4000, this->currentBank >> 4);
-            //         this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
-            //     }
-            //     else
-            //     {
-            //         this->write_byte_GB(0x4000, this->currentBank >> 4);
-            //         this->write_byte_GB(0x2000, 0x10 | (this->currentBank & 0x1f));
-            //     }
-            // }
-
-            // // Set ROM bank for MBC6
-            // else if (this->romType == 32)
-            // {
-            //     this->write_byte_GB(0x2800, 0);
-            //     this->write_byte_GB(0x3800, 0);
-            //     this->write_byte_GB(0x2000, this->currentBank);
-            //     this->write_byte_GB(0x3000, this->currentBank);
-            // }
-
-            // // Set ROM bank for TAMA5
-            // else if (this->romType == 0xFD)
-            // {
-            //     //  TODO:
-            //     // this->write_byte_SRAM_GB(0xA001, 0);
-            //     // this->write_byte_SRAM_GB(0xA000, this->currentBank & 0x0f);
-            //     // this->write_byte_SRAM_GB(0xA001, 1);
-            //     // this->write_byte_SRAM_GB(0xA000, (this->currentBank >> 4) & 0x0f);
-            // }
-
-            // // Set ROM bank for MBC2/3/4/5
-            // else if (this->romType >= 5)
-            // {
-            //     if (this->romType >= 11 && this->romType <= 13)
-            //     {
-            //         if ((this->currentBank & 0x1f) == 0)
-            //         {
-            //             // reset MMM01
-            //             cs2Pin_low;
-            //             delay(50);
-            //             cs2Pin_high;
-
-            //             // remap to higher 4Mbits ROM
-            //             this->write_byte_GB(0x3fff, 0x20);
-            //             this->write_byte_GB(0x5fff, 0x40);
-            //             this->write_byte_GB(0x7fff, 0x01);
-            //             this->write_byte_GB(0x1fff, 0x3a);
-            //             this->write_byte_GB(0x1fff, 0x7a);
-
-            //             // for every 4Mbits ROM, restart from 0x0000
-            //             this->romAddress = 0x0000;
-            //             this->currentBank++;
-            //         }
-            //         else
-            //         {
-            //             this->write_byte_GB(0x6000, 0);
-            //             this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
-            //         }
-            //     }
-            //     else
-            //     {
-            //         if ((this->romType >= 0x19 && this->romType <= 0x1E) && (this->currentBank == 0 || this->currentBank == 256))
-            //         {
-            //             this->write_byte_GB(0x3000, (this->currentBank >> 8) & 0xFF);
-            //         }
-            //         this->write_byte_GB(0x2100, this->currentBank & 0xFF);
-            //     }
-            // }
-            // // Set ROM bank for MBC1
-            // else
-            // {
-            //     this->write_byte_GB(0x6000, 0);
-            //     this->write_byte_GB(0x4000, this->currentBank >> 5);
-            //     this->write_byte_GB(0x2000, this->currentBank & 0x1F);
-            // }
             
-            // Read banks and save to SD
-            // while (this->romAddress <= this->romEndAddress) {
-            //     for (int i = 0; i < 512; i++)
-            //     {
-            //         sdBuffer[i] = this->read_byte_GB(this->romAddress + i);
-            //     }
-            //     Serial1.write(sdBuffer, 512);
-            //     Serial1.flush();
-            //     this->romAddress += 512;
-            //     this->processedProgressBar += 512;
-            // }
+            this->writtingROM = false;
+            return;
+        }
 
-            // transferJSON["type"] = "progress";
-            // transferJSON["total"] = this->totalProgressBar;
-            // transferJSON["transfered"] = this->processedProgressBar;
-            
-            // transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar;
-            // transferJSON["romBanks"] = this->romBanks;
-            // Serial.print("JSON:");
-            // serializeJson(transferJSON, Serial);
-            // Serial.println();
-            // transferJSON.clear();
-            
-            // delay(1000);
-            // __asm__("nop\n\t"
-            //         "nop\n\t"
-            //         "nop\n\t"
-            //         "nop\n\t");
-            */
-           // Second bank starts at 0x4000
-            if (this->currentBank > 1)
-            {
-                this->romAddress = 0x4000;
-                // MBC6 banks are half size
-                if (this->romType == 32)
-                {
-                    this->romEndAddress = 0x5FFF;
-                }
+        // Set up bank and address registers based on the current bank
+        bool bankSwitchSuccess = false;
+        int retryCount = 0;
+        
+        // Handle bank > 1 address adjustment
+        if (this->currentBank > 1) {
+            this->romAddress = 0x4000;
+            // MBC6 banks are half size
+            if (this->romType == 32) {
+                this->romEndAddress = 0x5FFF;
             }
-
-            // Set ROM bank for M161
-            if (this->romType == 0x104)
-            {
-                this->romAddress = 0;
-                // Set CS2 to LOW
-                cs2Pin_low;
-                delay(50);
-                // Set CS2 to HIGH
-                cs2Pin_high;
-                this->write_byte_GB(0x4000, this->currentBank & 0x7);
-            }
-
-            // Set ROM bank for MBC1M
-            else if (this->romType == 0x101 || this->romType == 0x103)
-            {
-                if (this->currentBank < 10)
-                {
-                    this->write_byte_GB(0x4000, this->currentBank >> 4);
-                    this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
-                }
-                else
-                {
-                    this->write_byte_GB(0x4000, this->currentBank >> 4);
-                    this->write_byte_GB(0x2000, 0x10 | (this->currentBank & 0x1f));
-                }
-            }
-
-            // Set ROM bank for MBC6
-            else if (this->romType == 32)
-            {
-                this->write_byte_GB(0x2800, 0);
-                this->write_byte_GB(0x3800, 0);
-                this->write_byte_GB(0x2000, this->currentBank);
-                this->write_byte_GB(0x3000, this->currentBank);
-            }
-
-            // Set ROM bank for TAMA5
-            else if (this->romType == 0xFD)
-            {
-                //  TODO:
-                // this->write_byte_SRAM_GB(0xA001, 0);
-                // this->write_byte_SRAM_GB(0xA000, this->currentBank & 0x0f);
-                // this->write_byte_SRAM_GB(0xA001, 1);
-                // this->write_byte_SRAM_GB(0xA000, (this->currentBank >> 4) & 0x0f);
-            }
-
-            // Set ROM bank for MBC2/3/4/5
-            else if (this->romType >= 5)
-            {
-                if (this->romType >= 11 && this->romType <= 13)
-                {
-                    if ((this->currentBank & 0x1f) == 0)
-                    {
-                        // reset MMM01
+        }
+        
+        // Attempt bank switching with retry
+        while (!bankSwitchSuccess && retryCount < MAX_READ_RETRIES) {
+            try {
+                // Switch banks based on cartridge type
+                switch (this->romType) {
+                    case 0x104: // M161
                         cs2Pin_low;
-                        delay(50);
+                        delay(10);
                         cs2Pin_high;
-
-                        // remap to higher 4Mbits ROM
-                        this->write_byte_GB(0x3fff, 0x20);
-                        this->write_byte_GB(0x5fff, 0x40);
-                        this->write_byte_GB(0x7fff, 0x01);
-                        this->write_byte_GB(0x1fff, 0x3a);
-                        this->write_byte_GB(0x1fff, 0x7a);
-
-                        // for every 4Mbits ROM, restart from 0x0000
-                        this->romAddress = 0x0000;
-                        this->currentBank++;
-                    }
-                    else
-                    {
-                        this->write_byte_GB(0x6000, 0);
-                        this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
-                    }
+                        this->write_byte_GB(0x4000, this->currentBank & 0x7);
+                        break;
+                        
+                    case 0x101:
+                    case 0x103: // MBC1M
+                        if (this->currentBank < 10) {
+                            this->write_byte_GB(0x4000, this->currentBank >> 4);
+                            this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
+                        } else {
+                            this->write_byte_GB(0x4000, this->currentBank >> 4);
+                            this->write_byte_GB(0x2000, 0x10 | (this->currentBank & 0x1f));
+                        }
+                        break;
+                        
+                    case 32: // MBC6
+                        this->write_byte_GB(0x2800, 0);
+                        this->write_byte_GB(0x3800, 0);
+                        this->write_byte_GB(0x2000, this->currentBank);
+                        this->write_byte_GB(0x3000, this->currentBank);
+                        break;
+                        
+                    default:
+                        if (this->romType >= 5) { // MBC2/3/4/5
+                            if (this->romType >= 11 && this->romType <= 13) {
+                                if ((this->currentBank & 0x1f) == 0) {
+                                    // reset MMM01
+                                    cs2Pin_low;
+                                    delay(10);
+                                    cs2Pin_high;
+                                    
+                                    // remap to higher 4Mbits ROM
+                                    this->write_byte_GB(0x3fff, 0x20);
+                                    this->write_byte_GB(0x5fff, 0x40);
+                                    this->write_byte_GB(0x7fff, 0x01);
+                                    this->write_byte_GB(0x1fff, 0x3a);
+                                    this->write_byte_GB(0x1fff, 0x7a);
+                                    
+                                    // for every 4Mbits ROM, restart from 0x0000
+                                    this->romAddress = 0x0000;
+                                    this->currentBank++;
+                                } else {
+                                    this->write_byte_GB(0x6000, 0);
+                                    this->write_byte_GB(0x2000, (this->currentBank & 0x1f));
+                                }
+                            } else {
+                                if ((this->romType >= 0x19 && this->romType <= 0x1E) && 
+                                    (this->currentBank == 0 || this->currentBank == 256)) {
+                                    this->write_byte_GB(0x3000, (this->currentBank >> 8) & 0xFF);
+                                }
+                                this->write_byte_GB(0x2100, this->currentBank & 0xFF);
+                            }
+                        } else { // Assume MBC1 or similar
+                            this->write_byte_GB(0x6000, 0);
+                            this->write_byte_GB(0x4000, this->currentBank >> 5);
+                            this->write_byte_GB(0x2000, this->currentBank & 0x1F);
+                        }
+                        break;
                 }
-                else
-                {
-                    if ((this->romType >= 0x19 && this->romType <= 0x1E) && (this->currentBank == 0 || this->currentBank == 256))
-                    {
-                        this->write_byte_GB(0x3000, (this->currentBank >> 8) & 0xFF);
-                    }
-                    this->write_byte_GB(0x2100, this->currentBank & 0xFF);
-                }
+                bankSwitchSuccess = true;
+            } catch (...) {
+                retryCount++;
+                delay(10);
             }
-            // Set ROM bank for MBC1
-            else
-            {
-                this->write_byte_GB(0x6000, 0);
-                this->write_byte_GB(0x4000, this->currentBank >> 5);
-                this->write_byte_GB(0x2000, this->currentBank & 0x1F);
+        }
+        
+        if (!bankSwitchSuccess) {
+            // Failed to switch banks, abort operation
+            transferJSON.clear();
+            transferJSON["type"] = "error";
+            transferJSON["message"] = "Failed to switch ROM bank";
+            Serial.print("JSON:");
+            serializeJson(transferJSON, Serial);
+            Serial.println();
+            
+            this->writtingROM = false;
+            return;
+        }
+        
+        // Read ROM data in smaller chunks to prevent long blocking
+        // Read a single chunk of 512 bytes or less per main() call
+        const size_t CHUNK_SIZE = 64; // Read 64 bytes at a time
+        const size_t MAX_CHUNKS_PER_LOOP = 8; // Process up to 512 bytes per main() call
+        
+        // Validate ROM address is within valid range
+        word maxRomAddress = this->romEndAddress;
+        if (maxRomAddress > 0x7FFF) maxRomAddress = 0x7FFF; // Safety limit
+        
+        // Process ROM data in chunks
+        if (this->romAddress <= maxRomAddress) {
+            bool allChunksReadSuccessfully = true;
+            
+            for (size_t chunk = 0; chunk < MAX_CHUNKS_PER_LOOP; chunk++) {
+                // Check if we've reached the end of this bank
+                if (this->romAddress > maxRomAddress) {
+                    break;
+                }
+                
+                // Calculate size of this chunk (might be smaller at end of bank)
+                size_t bytesToRead = CHUNK_SIZE;
+                if (this->romAddress + bytesToRead > maxRomAddress + 1) {
+                    bytesToRead = maxRomAddress + 1 - this->romAddress;
+                }
+                
+                if (bytesToRead == 0) break;
+                
+                // Read chunk with retry
+                bool chunkReadSuccess = false;
+                retryCount = 0;
+                
+                while (!chunkReadSuccess && retryCount < MAX_READ_RETRIES) {
+                    try {
+                        // Read ROM data into buffer
+                        for (size_t i = 0; i < bytesToRead; i++) {
+                            this->sdBuffer[i] = this->read_byte_GB(this->romAddress + i);
+                        }
+                        chunkReadSuccess = true;
+                    } catch (...) {
+                        retryCount++;
+                        delay(10);
+                    }
+                }
+                
+                if (!chunkReadSuccess) {
+                    allChunksReadSuccessfully = false;
+                    break;
+                }
+                
+                // Send data to serial port
+                if (Serial.availableForWrite() >= bytesToRead) {
+                    Serial.write(this->sdBuffer, bytesToRead);
+                    
+                    // Update progress
+                    this->romAddress += bytesToRead;
+                    this->processedProgressBar += bytesToRead;
+                } else {
+                    // If serial buffer is full, wait for next loop iteration
+                    break;
+                }
             }
             
-            // Read banks and save to SD
-            while (this->romAddress <= this->romEndAddress) {
-                // transferJSON.clear();
-                // transferJSON["type"] = "transfer";
-                // transferJSON["offset"] = this->romAddress;
-                // JsonArray chunkArray = transferJSON.createNestedArray("chunk");
-                for (int i = 0; i < 512; i++)
-                {
-                    sdBuffer[i] = this->read_byte_GB(this->romAddress + i);
-                    // chunkArray.add(this->read_byte_GB(this->romAddress + i));
+            // If we finished this bank or encountered an error, move to next bank
+            if (this->romAddress > maxRomAddress || !allChunksReadSuccessfully) {
+                // If there was an error reading, report it
+                if (!allChunksReadSuccessfully) {
+                    transferJSON.clear();
+                    transferJSON["type"] = "warning";
+                    transferJSON["message"] = "Error reading ROM data in bank " + String(this->currentBank);
+                    transferJSON["bank"] = this->currentBank;
+                    Serial.print("JSON:");
+                    serializeJson(transferJSON, Serial);
+                    Serial.println();
                 }
-                // uint8_t read_byte = this->read_byte_GB(this->romAddress);
-                // Serial1.write(sdBuffer, 512);
-                Serial.write(sdBuffer, 512);
-                // Serial.flush();
-                this->romAddress += 512;
-                this->processedProgressBar += 512;
-
                 
-                // transferJSON["transfered"] = this->processedProgressBar;
-                // Serial.print("JSON:");
-                // serializeJson(transferJSON, Serial);
-                // Serial.println();
+                // Move to next bank
+                this->currentBank++;
                 
-                
-                    
-               
+                // Send progress update every bank
+                transferJSON.clear();
+                transferJSON["type"] = "progress";
+                transferJSON["bank"] = this->currentBank - 1; // Just completed this bank
+                transferJSON["total"] = this->totalProgressBar;
+                transferJSON["transferred"] = this->processedProgressBar;
+                transferJSON["progress"] = (this->totalProgressBar > 0) ? 
+                    (this->processedProgressBar * 100 / this->totalProgressBar) : 0;
+                Serial.print("JSON:");
+                serializeJson(transferJSON, Serial);
+                Serial.println();
             }
-            this->currentBank++;
-        } else {
+        }
+        
+        // Check if we've processed all banks
+        if (this->currentBank >= this->romBanks) {
+            // Operation complete
             transferJSON.clear();
             transferJSON["type"] = "success";
             transferJSON["total"] = this->totalProgressBar;
-            transferJSON["transfered"] = this->processedProgressBar;
-            transferJSON["progress"] = this->processedProgressBar * 100 / this->totalProgressBar;
+            transferJSON["transferred"] = this->processedProgressBar;
+            transferJSON["progress"] = 100;
             transferJSON["romBanks"] = this->romBanks;
-            delay(200);
+            transferJSON["bytesRead"] = this->processedProgressBar;
+            
             Serial.print("JSON:");
             serializeJson(transferJSON, Serial);
             Serial.println();
+            
             this->writtingROM = false;
         }
     }

@@ -18,6 +18,7 @@ extern Settings settings_obj;
 class Buffer {
   public:
     Buffer();
+    ~Buffer();
     void pcapOpen(String file_name, fs::FS* fs, bool serial);
     void logOpen(String file_name, fs::FS* fs, bool serial);
     void append(wifi_promiscuous_pkt_t *packet, int len);

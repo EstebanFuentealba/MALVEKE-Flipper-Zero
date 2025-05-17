@@ -6,6 +6,11 @@ Buffer::Buffer(){
   bufB = (uint8_t*)malloc(BUF_SIZE);
 }
 
+Buffer::~Buffer() {
+    free(bufA);
+    free(bufB);
+}
+
 void Buffer::createFile(String name, bool is_pcap){
   int i=0;
   if (is_pcap) {
@@ -158,29 +163,77 @@ void Buffer::write(const uint8_t* buf, uint32_t len){
 }
 
 void Buffer::saveFs(){
+  // Check if filesystem is available
+  if (!fs) {
+    Serial.println("Error: Filesystem not available");
+    return;
+  }
+
+  // Try to open the file
   file = fs->open(fileName, FILE_APPEND);
   if (!file) {
     Serial.println(text02+fileName+"'");
     return;
   }
 
+  size_t bytesWritten = 0;
+  size_t totalBytes = 0;
+
   if(useA){
     if(bufSizeB > 0){
-      file.write(bufB, bufSizeB);
+      bytesWritten = file.write(bufB, bufSizeB);
+      totalBytes += bytesWritten;
+      
+      // Check if all bytes were written
+      if (bytesWritten != bufSizeB) {
+        Serial.println("Warning: Failed to write all data from buffer B");
+      }
     }
+    
     if(bufSizeA > 0){
-      file.write(bufA, bufSizeA);
+      bytesWritten = file.write(bufA, bufSizeA);
+      totalBytes += bytesWritten;
+      
+      // Check if all bytes were written
+      if (bytesWritten != bufSizeA) {
+        Serial.println("Warning: Failed to write all data from buffer A");
+      }
     }
   } else {
     if(bufSizeA > 0){
-      file.write(bufA, bufSizeA);
+      bytesWritten = file.write(bufA, bufSizeA);
+      totalBytes += bytesWritten;
+      
+      // Check if all bytes were written
+      if (bytesWritten != bufSizeA) {
+        Serial.println("Warning: Failed to write all data from buffer A");
+      }
     }
+    
     if(bufSizeB > 0){
-      file.write(bufB, bufSizeB);
+      bytesWritten = file.write(bufB, bufSizeB);
+      totalBytes += bytesWritten;
+      
+      // Check if all bytes were written
+      if (bytesWritten != bufSizeB) {
+        Serial.println("Warning: Failed to write all data from buffer B");
+      }
     }
   }
 
+  // Ensure all data is written to the file
+  file.flush();
+  
+  // Close the file
   file.close();
+  
+  // Debug info
+  #ifdef DEBUG_BUFFER
+    Serial.print("Wrote ");
+    Serial.print(totalBytes);
+    Serial.print(" bytes to ");
+    Serial.println(fileName);
+  #endif
 }
 
 void Buffer::saveSerial() {
@@ -194,6 +247,10 @@ void Buffer::saveSerial() {
   // Additional buffer and memcpy's so that a single Serial.write() is called
   // This is necessary so that other console output isn't mixed into buffer stream
   uint8_t* buf = (uint8_t*)malloc(mark_begin_len + bufSizeA + bufSizeB + mark_close_len);
+  if (!buf) {
+    Serial.println("Error: Failed to allocate memory for buffer save");
+    return;
+  }
   uint8_t* it = buf;
   memcpy(it, mark_begin, mark_begin_len);
   it += mark_begin_len;

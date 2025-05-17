@@ -254,7 +254,9 @@ void GameboyLiveCamera::readPicture(bool is_thumbnail)
                 }
                 if(this->take_a_picture) {
                     int bufindex = (y*GBCAM_W+x+j);
-                    GBCAM_BUFFER[bufindex] = gb_pal_colors[color];
+                    if(bufindex >= 0 && bufindex < sizeof(GBCAM_BUFFER)) {
+                        GBCAM_BUFFER[bufindex] = gb_pal_colors[color];
+                    }
                 }
             }
             Serial1.print(c); // Imprimir el valor de c para colores 2 o 3
@@ -263,10 +265,10 @@ void GameboyLiveCamera::readPicture(bool is_thumbnail)
     }
      if(this->take_a_picture) {
         Serial.print("JSON:{\"type\":\"gbcampicture\",\"data\":[");
-        for (uint16_t i = 0; i <= sizeof(raw_buffer); i++)
+        for (uint16_t i = 0; i < sizeof(raw_buffer); i++)
         {
             Serial.print(raw_buffer[i]);
-            if(i < sizeof(raw_buffer) -1) {
+            if(i < sizeof(raw_buffer) - 1) {
                 Serial.print(",");
             }
         }
@@ -337,9 +339,10 @@ unsigned int GameboyLiveCamera::waitPictureReady(void)
     this->setRegisterMode();
     this->writeCartByte(0x4000, 0x10); // Set register mode
     unsigned long int clocks = 0;
+    const unsigned long MAX_WAIT_CYCLES = 10000; // Reasonable timeout limit
     this->setAddress(0xA000);
     this->setReadMode(0xA000 < 0x8000);
-    while (1)
+    while (clocks < MAX_WAIT_CYCLES)
     {
         if (this->getDataBit0() == 0)
             break;

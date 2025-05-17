@@ -123,11 +123,9 @@ void gameboy_ram_backup_handle_rx_data_cb(uint8_t* buf, size_t len, void* contex
             }
             if(strcmp(model->event_type, "success") == 0) {
                 model->progress = 100;
-                // if(instance->cart_ram && storage_file_is_open(instance->cart_ram)) {
-                //     storage_file_close(instance->cart_ram);
-                // }
                 notification_success(instance->notification);
             }
+            cJSON_Delete(json);
         },
         true);
 }

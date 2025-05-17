@@ -111,15 +111,9 @@ void gameboy_rom_backup_handle_rx_data_cb(uint8_t* buf, size_t len, void* contex
             }
             if(strcmp(model->event_type, "success") == 0) {
                 model->progress = 100;
-                // cJSON* total = cJSON_GetObjectItemCaseSensitive(json, "total");
-                // if(cJSON_IsNumber(total)) {
-                //     model->transfered = total->valueint;
-                // }
-                // if(instance->cart_rom && storage_file_is_open(instance->cart_rom)) {
-                //     storage_file_close(instance->cart_rom);
-                // }
                 notification_success(instance->notification);
             }
+            cJSON_Delete(json);
         },
         true);
 }
