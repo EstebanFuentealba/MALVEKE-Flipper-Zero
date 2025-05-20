@@ -43,27 +43,27 @@ jobs:
           sdk-channel: release
           app-dir: ./flipper_companion_apps/applications/external/malveke_gb_photo/
       - name: Upload app artifacts GB Cartridge
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}-official-${{ steps.build-app-gb-cartridge.outputs.suffix }}
           path: ${{ steps.build-app-gb-cartridge.outputs.fap-artifacts }}
       - name: Upload app artifacts GB Link Camera
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}-${{ steps.build-app-link-camera.outputs.suffix }}
           path: ${{ steps.build-app-link-camera.outputs.fap-artifacts }}
       - name: Upload app artifacts GB Live Camera
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}-${{ steps.build-app-live-camera.outputs.suffix }}
           path: ${{ steps.build-app-live-camera.outputs.fap-artifacts }}
       - name: Upload app artifacts GBA Cartridge
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}-${{ steps.build-app-gba-cartridge.outputs.suffix }}
           path: ${{ steps.build-app-gba-cartridge.outputs.fap-artifacts }}
       - name: Upload app artifacts GB Photo
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}-${{ steps.build-app-gb-photo.outputs.suffix }}
           path: ${{ steps.build-app-gb-photo.outputs.fap-artifacts }}
