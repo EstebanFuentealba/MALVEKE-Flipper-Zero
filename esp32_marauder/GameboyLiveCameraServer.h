@@ -73,4 +73,7 @@ class GameboyLiveCameraServer {
 
 };
 
+
+void gb_camera_live_loop();
+void gb_camera_live_setup();
 #endif

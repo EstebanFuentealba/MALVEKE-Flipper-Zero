@@ -2,7 +2,7 @@
 #include "Gameboy.h"
 #include "configs.h"
 #include "GameboyLiveCameraServer.h"
-
+#include "gameboy_live_stream_server_assets.h"
 #include "soc/soc.h"           // Disable brownout problems
 #include "soc/rtc_cntl_reg.h"  // Disable brownout problems
 #include "driver/rtc_io.h"
@@ -10,20 +10,11 @@
 
 
 unsigned char raw_buffer[FRAME_SIZE]; // max( 16*8*14*8, 16*14*16 ) sensor pixels , tile bytes
-// static unsigned char GBCAM_BUFFER[14336];
-// uint8_t linear_buffer_a[128 * 112 / 4];
-// uint32_t luma_acc = 0;
-// uint32_t luma_idx = 0;
 GameboyLiveCameraServer gameboy_live_camera_server;
 HardwareSerial Serial3(3);
 AsyncEventSource events("/events");
 
 // Variables para control de exposición
-// uint32_t luma_hist[5] = {0};   // Histograma de luminancia
-// uint32_t luma_mean = 0;        // Luminancia media
-// int32_t ae_error = 0;          // Error de autoexposición
-// int32_t ae_rate = 0;           // Tasa de cambio del error
-// int32_t ae_last_error = 0;     // Último error registrado
 int32_t final_exposure = 0x0500; // Tiempo de exposición inicial
 
 
@@ -114,16 +105,6 @@ void GameboyLiveCameraServer::gb_mode(void)
 bool GameboyLiveCameraServer::isRunning() {
   return this->runGameboyLiveCameraServer;
 }
-/*
-  // Set the 16 bit address
-  void GameboyLiveCameraServer::set_address_GB(uint16_t address)
-  {
-    // Write each of the bits into the address pins
-    for (uint32_t i = 0; i < sizeof(ADDRESS_GB_GBC_PINS) / sizeof(ADDRESS_GB_GBC_PINS[0]); i++)
-    {
-        digitalWrite(ADDRESS_GB_GBC_PINS[i], address & (1 << i) ? HIGH : LOW);
-    }
-  }*/
 void GameboyLiveCameraServer::setAddress(unsigned int addr)
 {
   // Write each of the bits into the address pins
@@ -227,121 +208,6 @@ void GameboyLiveCameraServer::writeCartByte(unsigned int address, unsigned int v
 
   this->setWaitMode();
 }
-// void GameboyLiveCameraServer::adjustExposure()
-// {
-//     // Reset luma accumulator and index
-//     luma_acc = 0;
-//     luma_idx = 0;
-
-//     // Capture an image first to measure the average luminance
-//     this->ramEnable();                 // Enable RAM
-//     this->setRegisterMode();           // Set register mode
-//     this->writeCartByte(0x4000, 0x10); // Set register mode
-//     this->writeCartByte(0xA000, 0x02); // Trigger the capture
-
-//     // Wait for the picture to be ready
-//     unsigned long clocks = this->waitPictureReady();
-//     this->readPicture(false); // Read the full resolution image into raw_buffer
-
-//     // Calculate average luminance
-//     for (int i = 0; i < sizeof(raw_buffer); i++)
-//     {
-//         luma_acc += raw_buffer[i];
-//         luma_idx++;
-//     }
-
-//     uint32_t avg_luma = luma_acc / luma_idx;
-
-//     // Adjust exposure based on the average luminance
-//     if (avg_luma > 0x80) // Example threshold, can be adjusted
-//     {
-//         this->decreaseExposure();
-//     }
-//     else if (avg_luma < 0x50) // Example threshold, can be adjusted
-//     {
-//         this->increaseExposure();
-//     }
-// }
-
-// void GameboyLiveCameraServer::readPicture(bool is_thumbnail)
-// {
-//     this->writeCartByte(0x0000, 0x0A); // Enable RAM
-//     this->writeCartByte(0x4000, 0x00); // Set RAM mode, bank 0
-
-//     unsigned int addr = 0xA100;
-//     unsigned int _size = 16 * 14 * 16;
-//     this->setReadMode(0xA100 < 0x8000);
-//     int inc = 0;
-//     while (_size--)
-//     {
-//         this->setAddress(addr++);
-//         int value = this->getData();
-//         raw_buffer[inc] = value;
-//         inc++;
-//     }
-//     String colorIndices = base64::encode(raw_buffer, sizeof(raw_buffer));
-//     events.send(colorIndices.c_str(), "frame", millis());
-//     this->setWaitMode();
-// }
-// void GameboyLiveCameraServer::readPicture(bool is_thumbnail)
-// {
-//     this->ramEnable();  // Enable RAM
-//     this->setRegisterMode();  // Set register mode
-//     this->writeCartByte(0x0000, 0x0A); // Enable RAM
-//     this->writeCartByte(0x4000, 0x00); // Set RAM mode, bank 0
-
-//     unsigned int addr = 0xA100;
-//     unsigned int _size = 16 * 14 * 16;
-//     this->setReadMode(0xA100 < 0x8000);
-
-//     int inc = 0;
-//     uint32_t totalLuminance = 0;
-
-//     while (_size--)
-//     {
-//         this->setAddress(addr++);
-//         int value = this->getData();
-//         raw_buffer[inc] = value;
-
-//         // Sumar el valor de luminancia para ajustar la exposición
-//         totalLuminance += value;
-//         inc++;
-//     }
-
-//     uint32_t averageLuminance = totalLuminance / (16 * 14 * 16);
-//     averageLuminance = (averageLuminance + previous_luminance) / 2;
-//     previous_luminance = averageLuminance;
-
-//     // Establecer una luminancia deseada
-//     uint32_t desiredLuminance = 128;
-
-//     // Calcular la diferencia entre la luminancia media y la deseada
-//     int luminanceDifference = desiredLuminance - averageLuminance;
-
-//     // Ajuste gradual del tiempo de exposición solo si la diferencia es significativa
-//     const int exposureAdjustmentThreshold = 2;  // Reducido para más sensibilidad
-//     const int exposureAdjustmentStep = 0x100;   // Aumentado para un ajuste más grande
-
-//     if (abs(luminanceDifference) > exposureAdjustmentThreshold)
-//     {
-//         if (luminanceDifference > 0)
-//         {
-//             if (this->exposure_time < 0x0FFF) {  // Limitar el máximo de exposure_time
-//                 this->exposure_time += exposureAdjustmentStep;
-//             }
-//         }
-//         else
-//         {
-//             if (this->exposure_time > 0x0100) {  // Limitar el mínimo de exposure_time
-//                 this->exposure_time -= exposureAdjustmentStep;
-//             }
-//         }
-//     }
-
-//     String colorIndices = base64::encode(raw_buffer, sizeof(raw_buffer));
-//     events.send(colorIndices.c_str(), "frame", millis());
-//     this->setWaitMode();
-// }
 
 void GameboyLiveCameraServer::readPicture(bool is_thumbnail)
 {
@@ -367,53 +233,9 @@ void GameboyLiveCameraServer::readPicture(bool is_thumbnail)
     totalLuminance += value;
     inc++;
   }
-  // // Min image brightness: 128*112*0=0
-  // // Max image brightness: 128*112*3=43008
-
-  // // Indoor: Brightness 100, Contrast 10, Gain 10
-  // // Outdoors: Brightness 160, Contrast 6, Gain 1
-  // // Calcular la luminancia media
-  // uint32_t averageLuminance = totalLuminance / (16 * 14 * 16);
-  // averageLuminance = (averageLuminance + previous_luminance) / 2;
-  // previous_luminance = averageLuminance;
-  // // // Ajustar el tiempo de exposición basado en la luminancia media
-  // // if (averageLuminance < 100) {
-  // //     // Si la imagen es muy oscura, aumentar el tiempo de exposición
-  // //     this->increaseExposure();
-  // // } else if (averageLuminance > 160) {
-  // //     // Si la imagen es muy clara, disminuir el tiempo de exposición
-  // //     this->decreaseExposure();
-  // // }
-  // // Establecer una luminancia deseada
-  // // uint32_t desiredLuminance = 128;
-
-  // // // Calcular la diferencia entre la luminancia media y la deseada
-  // // int luminanceDifference = desiredLuminance - averageLuminance;
-
-  // // // Ajuste gradual del tiempo de exposición solo si la diferencia es significativa
-  // // const int exposureAdjustmentThreshold = 5;  // Reducido para más sensibilidad
-  // // const int exposureAdjustmentStep = 0x100;   // Aumentado para un ajuste más grande
-
-  // // if (abs(luminanceDifference) > exposureAdjustmentThreshold)
-  // // {
-  // //     if (luminanceDifference > 0)
-  // //     {
-  //         if (averageLuminance < 0x50) {  // Limitar el máximo de exposure_time
-  //             this->increaseExposure();
-  //         }
-  //     // }
-  //     // else
-  //     // {
-  //         if (averageLuminance > 0x80) {  // Limitar el mínimo de exposure_time
-  //             // this->exposure_time -= exposureAdjustmentStep;
-  //             this->decreaseExposure();
-  //         }
-  //     // }
-  // // }
-
-
   String colorIndices = base64::encode(raw_buffer, sizeof(raw_buffer));
   events.send(colorIndices.c_str(), "frame", millis());
+  delayMicroseconds(10);
   this->setWaitMode();
 }
 void GameboyLiveCameraServer::ramEnable()
@@ -610,12 +432,11 @@ void GameboyLiveCameraServer::main()
 }
 
 
-void gb_camera_server_setup() {
+void gb_camera_live_setup() {
 
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
   disableCore0WDT();
-  String html = "<html><body><h1>:B</h1><script>if (!!window.EventSource) {var source = new EventSource('/events');window.source = source; source.addEventListener('open', function(e) {console.log('Events Connected');}, false); source.addEventListener('error', function(e) {if (e.target.readyState != EventSource.OPEN) {console.log('Events Disconnected');}}, false);source.addEventListener('message', function(e) {console.log('message', e.data);}, false);source.addEventListener('myevent', function(e) {console.log('myevent', e.data);}, false);};</script></body></html>";
-  strncpy(index_html, reinterpret_cast<const char*>(html.c_str()), sizeof(html.c_str()));
+  strncpy(index_html, reinterpret_cast<const char*>(live_stream_index_html), sizeof(live_stream_index_html));
   gbStartAP("[MALVEKE] Live Cam", "12345678");
 
   // setup ......
@@ -627,29 +448,54 @@ void gb_camera_server_setup() {
     // and set reconnect delay to 1 second
     client->send("hello!", NULL, millis(), 1000);
   });
-  _server.on("/start_gb_camera", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/index.js", HTTP_GET, [](AsyncWebServerRequest *request){
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "application/javascript", live_stream_index_js_gz, live_stream_index_js_gz_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+  });
+  _server.on("/index.css", HTTP_GET, [](AsyncWebServerRequest *request){
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "text/css", live_stream_index_css_gz, live_stream_index_css_gz_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+  });
+  _server.on("/Button.js", HTTP_GET, [](AsyncWebServerRequest *request){
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "application/javascript", live_stream_Button_js_gz, live_stream_Button_js_gz_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+  });
+  _server.on("/Select.js", HTTP_GET, [](AsyncWebServerRequest *request){
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "application/javascript", live_stream_Select_js_gz, live_stream_Select_js_gz_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+  });
+  _server.on("/gbcamera-logo.png", HTTP_GET, [](AsyncWebServerRequest *request){
+      AsyncWebServerResponse *response = request->beginResponse_P(200, "image/png", live_stream_gbcamera_logo_png_gz, live_stream_gbcamera_logo_png_gz_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+  });
+  _server.on("/start_gb_camera", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.begin();
     gameboy_live_camera_server.start();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/stop_gb_camera", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/stop_gb_camera", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.begin();
     gameboy_live_camera_server.stop();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/decrease_exposure", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/decrease_exposure", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.decreaseExposure();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/increase_exposure", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/increase_exposure", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.increaseExposure();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/set_exposure", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/set_exposure", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     const AsyncWebParameter* p = request->getParam("value");
     uint16_t exposure_value = static_cast<uint16_t>(strtoul(p->value().c_str(), nullptr, 10));
 
@@ -657,18 +503,19 @@ void gb_camera_server_setup() {
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/enable_dithering", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/enable_dithering", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.enableDithering();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/disable_dithering", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+  _server.on("/disable_dithering", HTTP_GET, [gameboy_live_camera_server](AsyncWebServerRequest * request) {
     gameboy_live_camera_server.disableDithering();
     String json = "{\"status\": true }";
     request->send(200, "application/json", json);
   });
-  _server.on("/", HTTP_GET, [html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
-    request->send_P(200, "text/html", reinterpret_cast<const char*>(html.c_str()));
+  _server.on("/", HTTP_GET, [live_stream_index_html, gameboy_live_camera_server](AsyncWebServerRequest * request) {
+    // request->send_P(200, "text/html", reinterpret_cast<const char*>(html.c_str()));
+    request->send_P(200, "text/html", reinterpret_cast<const char*>(live_stream_index_html));
   });
   _server.addHandler(&events);
   _server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
@@ -676,11 +523,6 @@ void gb_camera_server_setup() {
   _server.begin();
 }
 
-void gb_camera_server_loop() {
-  // if(eventTriggered){ // your logic here
-  //send event "myevent"
-  // events.send("my event content","myevent",millis());
-  // delay(5000);
-  // }
+void gb_camera_live_loop() {
   gameboy_live_camera_server.main();
 }

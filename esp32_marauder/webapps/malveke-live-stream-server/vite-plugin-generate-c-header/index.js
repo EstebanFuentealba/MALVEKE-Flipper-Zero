@@ -4,7 +4,6 @@ import zlib from 'zlib';
 import { convertToString, prepareBinary,  NUM_COLUMNS } from './stringConverter'
 
 function getAllFiles(dirPath, prefix) {
-
     // Descomprimir index.html.gz específicamente
     const gzFilePath = path.join(dirPath, 'index.html.gz');
     if (fs.existsSync(gzFilePath)) {
@@ -13,7 +12,6 @@ function getAllFiles(dirPath, prefix) {
         const outputPath = path.join(dirPath, 'index.html');
         fs.writeFileSync(outputPath, decompressedData);
     }
-
     const files = fs.readdirSync(dirPath);
     const fileList = [];
     files.forEach((file) => {

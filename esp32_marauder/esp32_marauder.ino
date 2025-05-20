@@ -65,6 +65,7 @@
 #include "GameBoyCartridge.h"
 #include "GameBoyAdvanceCartridge.h"
 #include "GameboyLiveCamera.h"
+#include "GameboyLiveCameraServer.h"
 // #include "GameBoyPhoto.h"
 // #include "GameBoyPrinter.h"
 #include "uart.h"
@@ -155,9 +156,9 @@ void setup()
                 gb_camera_loop();
                 break;
             case 's':
-              gb_camera_server_setup();
+              gb_camera_live_setup();
               for (;;)
-                gb_camera_server_loop();
+                gb_camera_live_loop();
                 break;
           #endif
         }
